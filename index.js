@@ -1,26 +1,10 @@
-const express = require('express')
-const fetch = require('node-fetch')
-const cors = require('cors')
-const app = express()
-
-app.use(cors({ origin: '*' }))
-
-app.get('/yahoo', async (req, res) => {
-  try {
-    const url = req.query.url
-    if (!url) return res.status(400).json({ error: 'No URL' })
-
-    const response = await fetch(decodeURIComponent(url), {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/json'
-      }
     })
 
-    const data = await response.json()
-    res.json(data)
+    res.status(upstream.status)
+    res.set('Content-Type', upstream.headers.get('content-type') || 'application/json')
+    upstream.body.pipe(res)
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    res.status(502).json({ error: { message: 'Proxy upstream error: ' + err.message } })
   }
 })
 
