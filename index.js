@@ -86,7 +86,9 @@ app.post('/anthropic', anthropicCors, express.json({ limit: '1mb' }), async (req
 // Set NEWSDATA_API_KEY in Railway (free key from newsdata.io). "ultima_hora" is
 // intentionally NOT here (free tier is delayed) — it stays an AI/Pro feature.
 // ─────────────────────────────────────────────────────────────────────────────
-const NEWSDATA_KEY = process.env.NEWSDATA_API_KEY || ''
+// Falls back to a free NewsData key so it works without a Railway env var.
+// Low-risk (free tier). Prefer setting NEWSDATA_API_KEY in Railway; rotate if leaked.
+const NEWSDATA_KEY = process.env.NEWSDATA_API_KEY || 'pub_4ffbb84d52c340d6873a0bfd17de153b'
 const NEWS_TTL_MS = 60 * 60 * 1000 // 1h shared cache
 const newsCache = new Map()        // cacheKey -> { ts, data }
 
