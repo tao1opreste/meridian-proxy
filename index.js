@@ -115,8 +115,8 @@ async function newsdataQuery(params) {
   } catch { return [] }
 }
 
-function mapArticles(arr, limit) {
-  return (arr || []).slice(0, limit).map(a => ({
+function mapOne(a) {
+  return {
     id: a.article_id || a.link || a.title,
     headline: a.title || '',
     summary: a.description || '',
@@ -124,7 +124,11 @@ function mapArticles(arr, limit) {
     link: a.link || '',
     ticker: '',
     timeAgo: a.pubDate || '',
-  }))
+  }
+}
+
+function mapArticles(arr, limit) {
+  return (arr || []).slice(0, limit).map(mapOne)
 }
 
 async function getGlobalNews() {
@@ -132,8 +136,20 @@ async function getGlobalNews() {
   if (cached && Date.now() - cached.ts < NEWS_TTL_MS) return cached.data
   const keys = Object.keys(GLOBAL_SECTIONS)
   const results = await Promise.all(keys.map(k => newsdataQuery(GLOBAL_SECTIONS[k])))
+  const seen = new Set() // dedupe the same article showing up in several sections
   const data = {}
-  keys.forEach((k, i) => { data[k] = mapArticles(results[i], k === 'destacado' ? 6 : 4) })
+  keys.forEach((k, i) => {
+    const limit = k === 'destacado' ? 6 : 4
+    const out = []
+    for (const a of (results[i] || [])) {
+      const titleKey = (a.title || '').toLowerCase().trim()
+      if (!titleKey || seen.has(titleKey)) continue
+      seen.add(titleKey)
+      out.push(mapOne(a))
+      if (out.length >= limit) break
+    }
+    data[k] = out
+  })
   newsCache.set('global', { ts: Date.now(), data })
   return data
 }
