@@ -79,6 +79,89 @@ app.post('/anthropic', anthropicCors, express.json({ limit: '1mb' }), async (req
   }
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// News via NewsData.io — cheap, commercial-friendly alternative to AI web_search.
+// SHARED server-side cache: global sections are fetched ONCE per hour and served
+// to every user, so news cost does NOT scale with the number of users.
+// Set NEWSDATA_API_KEY in Railway (free key from newsdata.io). "ultima_hora" is
+// intentionally NOT here (free tier is delayed) — it stays an AI/Pro feature.
+// ─────────────────────────────────────────────────────────────────────────────
+const NEWSDATA_KEY = process.env.NEWSDATA_API_KEY || ''
+const NEWS_TTL_MS = 60 * 60 * 1000 // 1h shared cache
+const newsCache = new Map()        // cacheKey -> { ts, data }
+
+const GLOBAL_SECTIONS = {
+  destacado:  { category: 'business' },
+  macro:      { q: 'inflation OR "interest rates" OR "Federal Reserve" OR ECB OR economy', category: 'business' },
+  tecnologia: { category: 'technology' },
+  cripto:     { q: 'cryptocurrency OR bitcoin OR ethereum' },
+  materias:   { q: 'oil OR gold OR commodities' },
+}
+
+async function newsdataQuery(params) {
+  if (!NEWSDATA_KEY) return []
+  const u = new URL('https://newsdata.io/api/1/latest')
+  u.searchParams.set('apikey', NEWSDATA_KEY)
+  u.searchParams.set('language', 'es,en')
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v)
+  try {
+    const r = await fetch(u.toString())
+    if (!r.ok) return []
+    const j = await r.json()
+    return Array.isArray(j.results) ? j.results : []
+  } catch { return [] }
+}
+
+function mapArticles(arr, limit) {
+  return (arr || []).slice(0, limit).map(a => ({
+    id: a.article_id || a.link || a.title,
+    headline: a.title || '',
+    summary: a.description || '',
+    source: a.source_name || a.source_id || '',
+    link: a.link || '',
+    ticker: '',
+    timeAgo: a.pubDate || '',
+  }))
+}
+
+async function getGlobalNews() {
+  const cached = newsCache.get('global')
+  if (cached && Date.now() - cached.ts < NEWS_TTL_MS) return cached.data
+  const keys = Object.keys(GLOBAL_SECTIONS)
+  const results = await Promise.all(keys.map(k => newsdataQuery(GLOBAL_SECTIONS[k])))
+  const data = {}
+  keys.forEach((k, i) => { data[k] = mapArticles(results[i], k === 'destacado' ? 6 : 4) })
+  newsCache.set('global', { ts: Date.now(), data })
+  return data
+}
+
+async function getHoldingsNews(q) {
+  if (!q) return []
+  const key = 'h:' + q
+  const cached = newsCache.get(key)
+  if (cached && Date.now() - cached.ts < NEWS_TTL_MS) return cached.data
+  const data = mapArticles(await newsdataQuery({ q }), 6)
+  newsCache.set(key, { ts: Date.now(), data })
+  return data
+}
+
+app.options('/news', anthropicCors)
+app.post('/news', anthropicCors, express.json({ limit: '256kb' }), async (req, res) => {
+  if (PROXY_SECRET && req.get('x-meridian-secret') !== PROXY_SECRET) {
+    return res.status(401).json({ error: { message: 'Unauthorized news request' } })
+  }
+  if (!NEWSDATA_KEY) {
+    return res.status(500).json({ error: { message: 'NEWSDATA_API_KEY not set on server' } })
+  }
+  try {
+    const holdingsQuery = (req.body && req.body.q) ? String(req.body.q).slice(0, 200) : ''
+    const [global, tus] = await Promise.all([getGlobalNews(), getHoldingsNews(holdingsQuery)])
+    res.json({ ...global, tus_acciones: tus })
+  } catch (err) {
+    res.status(502).json({ error: { message: 'News error: ' + err.message } })
+  }
+})
+
 app.get('/health', (req, res) => res.json({ ok: true }))
 
 const PORT = process.env.PORT || 3001
