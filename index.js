@@ -97,8 +97,8 @@ const GLOBAL_SECTIONS = {
   destacado:  { q: '"stock market" OR earnings OR Nasdaq OR bolsa OR acciones', category: 'business' },
   macro:      { q: 'inflation OR "interest rates" OR "Federal Reserve" OR ECB', category: 'business' },
   tecnologia: { q: 'semiconductor OR Nvidia OR Apple OR "tech stocks" OR chips', category: 'business' },
-  cripto:     { q: 'bitcoin OR ethereum OR cryptocurrency OR crypto' },
-  materias:   { q: 'oil prices OR gold OR commodities OR crude' },
+  cripto:     { q: 'bitcoin OR ethereum OR cryptocurrency OR crypto', category: 'business' },
+  materias:   { q: 'oil prices OR gold OR commodities OR crude', category: 'business' },
 }
 
 async function newsdataQuery(params) {
@@ -143,7 +143,7 @@ async function getHoldingsNews(q) {
   const key = 'h:' + q
   const cached = newsCache.get(key)
   if (cached && Date.now() - cached.ts < NEWS_TTL_MS) return cached.data
-  const data = mapArticles(await newsdataQuery({ q }), 6)
+  const data = mapArticles(await newsdataQuery({ q, category: 'business' }), 6)
   newsCache.set(key, { ts: Date.now(), data })
   return data
 }
