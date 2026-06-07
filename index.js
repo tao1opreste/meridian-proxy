@@ -181,6 +181,43 @@ app.post('/news', anthropicCors, express.json({ limit: '256kb' }), async (req, r
   }
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Fear & Greed Index (real, from CNN) — public, free, NO API key, NO AI tokens.
+// SHARED server cache (30 min) so it costs the same regardless of user count.
+// CNN's dataviz endpoint needs a browser User-Agent or it 403s.
+// ─────────────────────────────────────────────────────────────────────────────
+const FNG_TTL_MS = 30 * 60 * 1000
+let fngCache = null // { ts, data }
+
+app.get('/fng', publicCors, async (req, res) => {
+  try {
+    if (fngCache && Date.now() - fngCache.ts < FNG_TTL_MS) return res.json(fngCache.data)
+
+    const r = await fetch('https://production.dataviz.cnn.io/index/fearandgreed/graphdata', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      },
+    })
+    if (!r.ok) {
+      if (fngCache) return res.json(fngCache.data) // serve stale on upstream error
+      return res.status(502).json({ error: 'CNN upstream ' + r.status })
+    }
+    const j = await r.json()
+    const fg = j && j.fear_and_greed ? j.fear_and_greed : {}
+    const data = {
+      score: typeof fg.score === 'number' ? Math.round(fg.score) : null,
+      rating: fg.rating || null,
+      updated: fg.timestamp || null,
+    }
+    fngCache = { ts: Date.now(), data }
+    res.json(data)
+  } catch (err) {
+    if (fngCache) return res.json(fngCache.data)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 app.get('/health', (req, res) => res.json({ ok: true }))
 
 const PORT = process.env.PORT || 3001
