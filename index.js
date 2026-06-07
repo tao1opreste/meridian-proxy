@@ -92,12 +92,13 @@ const NEWSDATA_KEY = process.env.NEWSDATA_API_KEY || 'pub_4ffbb84d52c340d6873a0b
 const NEWS_TTL_MS = 60 * 60 * 1000 // 1h shared cache
 const newsCache = new Map()        // cacheKey -> { ts, data }
 
+// Finance-focused queries (NewsData free q limit is ~100 chars, so keep them short).
 const GLOBAL_SECTIONS = {
-  destacado:  { category: 'business' },
-  macro:      { q: 'inflation OR "interest rates" OR "Federal Reserve" OR ECB OR economy', category: 'business' },
-  tecnologia: { category: 'technology' },
-  cripto:     { q: 'cryptocurrency OR bitcoin OR ethereum' },
-  materias:   { q: 'oil OR gold OR commodities' },
+  destacado:  { q: '"stock market" OR earnings OR Nasdaq OR bolsa OR acciones', category: 'business' },
+  macro:      { q: 'inflation OR "interest rates" OR "Federal Reserve" OR ECB', category: 'business' },
+  tecnologia: { q: 'semiconductor OR Nvidia OR Apple OR "tech stocks" OR chips', category: 'business' },
+  cripto:     { q: 'bitcoin OR ethereum OR cryptocurrency OR crypto' },
+  materias:   { q: 'oil prices OR gold OR commodities OR crude' },
 }
 
 async function newsdataQuery(params) {
