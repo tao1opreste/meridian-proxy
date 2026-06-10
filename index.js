@@ -226,11 +226,13 @@ app.get('/fng', publicCors, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const GOOGLE_TTS_KEY = process.env.GOOGLE_TTS_KEY || ''
 // Chirp 3 HD = voces generativas, lo más humano de Google (capa gratis 1M/mes).
-// Si una voz Chirp fallara, basta cambiar el nombre por una Neural2 (es-ES-Neural2-A).
+// Lista de candidatas EN ORDEN: si una falla, prueba la siguiente (nunca cae a Siri).
+// Hombre primero (Orus, Charon); Aoede al final como red de seguridad (confirmada).
 const TTS_VOICES = {
-  es: { languageCode: 'es-ES', name: 'es-ES-Chirp3-HD-Orus' },
-  en: { languageCode: 'en-US', name: 'en-US-Chirp3-HD-Orus' },
+  es: ['es-ES-Chirp3-HD-Orus', 'es-ES-Chirp3-HD-Charon', 'es-ES-Chirp3-HD-Aoede'],
+  en: ['en-US-Chirp3-HD-Orus', 'en-US-Chirp3-HD-Charon', 'en-US-Chirp3-HD-Aoede'],
 }
+const TTS_LANGCODE = { es: 'es-ES', en: 'en-US' }
 
 app.options('/tts', anthropicCors)
 app.post('/tts', anthropicCors, express.json({ limit: '64kb' }), async (req, res) => {
@@ -244,16 +246,26 @@ app.post('/tts', anthropicCors, express.json({ limit: '64kb' }), async (req, res
     const text = (req.body && req.body.text ? String(req.body.text) : '').slice(0, 700).trim()
     if (!text) return res.status(400).json({ error: { message: 'No text' } })
     const lang = (req.body && req.body.lang) === 'en' ? 'en' : 'es'
-    const voice = TTS_VOICES[lang]
-    const r = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(GOOGLE_TTS_KEY), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: { text }, voice, audioConfig: { audioEncoding: 'MP3' } }),
-    })
-    if (!r.ok) return res.status(502).json({ error: { message: 'TTS upstream ' + r.status } })
-    const j = await r.json()
-    if (!j.audioContent) return res.status(502).json({ error: { message: 'No audio returned' } })
-    res.json({ audio: j.audioContent })
+    const candidates = TTS_VOICES[lang]
+    const languageCode = TTS_LANGCODE[lang]
+    let audio = null
+    let lastErr = ''
+    for (const name of candidates) {
+      const r = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(GOOGLE_TTS_KEY), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input: { text }, voice: { languageCode, name }, audioConfig: { audioEncoding: 'MP3' } }),
+      })
+      if (r.ok) {
+        const j = await r.json()
+        if (j.audioContent) { audio = j.audioContent; break }
+        lastErr = 'no audio (' + name + ')'
+      } else {
+        lastErr = 'upstream ' + r.status + ' (' + name + ')'
+      }
+    }
+    if (!audio) return res.status(502).json({ error: { message: 'TTS failed: ' + lastErr } })
+    res.json({ audio })
   } catch (err) {
     res.status(500).json({ error: { message: 'TTS error: ' + err.message } })
   }
