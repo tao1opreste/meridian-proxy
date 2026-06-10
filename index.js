@@ -218,6 +218,45 @@ app.get('/fng', publicCors, async (req, res) => {
   }
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Text-to-Speech (voz humana) vía Google Cloud TTS. La clave vive SOLO aquí
+// (env GOOGLE_TTS_KEY), nunca en la app. Protegido con x-meridian-secret + CORS.
+// Sin clave → 503 y la app cae a la voz nativa del dispositivo (no se rompe).
+// Voces neurales: español (es-ES) e inglés (en-US). Capa gratis de Google ~1M/mes.
+// ─────────────────────────────────────────────────────────────────────────────
+const GOOGLE_TTS_KEY = process.env.GOOGLE_TTS_KEY || ''
+const TTS_VOICES = {
+  es: { languageCode: 'es-ES', name: 'es-ES-Neural2-A' },
+  en: { languageCode: 'en-US', name: 'en-US-Neural2-F' },
+}
+
+app.options('/tts', anthropicCors)
+app.post('/tts', anthropicCors, express.json({ limit: '64kb' }), async (req, res) => {
+  if (PROXY_SECRET && req.get('x-meridian-secret') !== PROXY_SECRET) {
+    return res.status(401).json({ error: { message: 'Unauthorized tts request' } })
+  }
+  if (!GOOGLE_TTS_KEY) {
+    return res.status(503).json({ error: { message: 'GOOGLE_TTS_KEY not set on server' } })
+  }
+  try {
+    const text = (req.body && req.body.text ? String(req.body.text) : '').slice(0, 700).trim()
+    if (!text) return res.status(400).json({ error: { message: 'No text' } })
+    const lang = (req.body && req.body.lang) === 'en' ? 'en' : 'es'
+    const voice = TTS_VOICES[lang]
+    const r = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(GOOGLE_TTS_KEY), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: { text }, voice, audioConfig: { audioEncoding: 'MP3' } }),
+    })
+    if (!r.ok) return res.status(502).json({ error: { message: 'TTS upstream ' + r.status } })
+    const j = await r.json()
+    if (!j.audioContent) return res.status(502).json({ error: { message: 'No audio returned' } })
+    res.json({ audio: j.audioContent })
+  } catch (err) {
+    res.status(500).json({ error: { message: 'TTS error: ' + err.message } })
+  }
+})
+
 app.get('/health', (req, res) => res.json({ ok: true }))
 
 const PORT = process.env.PORT || 3001
