@@ -225,9 +225,11 @@ app.get('/fng', publicCors, async (req, res) => {
 // Voces neurales: español (es-ES) e inglés (en-US). Capa gratis de Google ~1M/mes.
 // ─────────────────────────────────────────────────────────────────────────────
 const GOOGLE_TTS_KEY = process.env.GOOGLE_TTS_KEY || ''
+// Chirp 3 HD = voces generativas, lo más humano de Google (capa gratis 1M/mes).
+// Si una voz Chirp fallara, basta cambiar el nombre por una Neural2 (es-ES-Neural2-A).
 const TTS_VOICES = {
-  es: { languageCode: 'es-ES', name: 'es-ES-Neural2-A' },
-  en: { languageCode: 'en-US', name: 'en-US-Neural2-F' },
+  es: { languageCode: 'es-ES', name: 'es-ES-Chirp3-HD-Aoede' },
+  en: { languageCode: 'en-US', name: 'en-US-Chirp3-HD-Aoede' },
 }
 
 app.options('/tts', anthropicCors)
