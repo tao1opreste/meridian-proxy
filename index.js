@@ -228,8 +228,8 @@ const GOOGLE_TTS_KEY = process.env.GOOGLE_TTS_KEY || ''
 // Chirp 3 HD = voces generativas, lo más humano de Google (capa gratis 1M/mes).
 // Si una voz Chirp fallara, basta cambiar el nombre por una Neural2 (es-ES-Neural2-A).
 const TTS_VOICES = {
-  es: { languageCode: 'es-ES', name: 'es-ES-Chirp3-HD-Aoede' },
-  en: { languageCode: 'en-US', name: 'en-US-Chirp3-HD-Aoede' },
+  es: { languageCode: 'es-ES', name: 'es-ES-Chirp3-HD-Orus' },
+  en: { languageCode: 'en-US', name: 'en-US-Chirp3-HD-Orus' },
 }
 
 app.options('/tts', anthropicCors)
