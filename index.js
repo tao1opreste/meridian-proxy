@@ -227,10 +227,10 @@ app.get('/fng', publicCors, async (req, res) => {
 const GOOGLE_TTS_KEY = process.env.GOOGLE_TTS_KEY || ''
 // Chirp 3 HD = voces generativas, lo más humano de Google (capa gratis 1M/mes).
 // Lista de candidatas EN ORDEN: si una falla, prueba la siguiente (nunca cae a Siri).
-// Hombre primero (Orus, Charon); Aoede al final como red de seguridad (confirmada).
+// Charon = voz de hombre más grave/resonante; Orus de respaldo; Aoede al final (confirmada).
 const TTS_VOICES = {
-  es: ['es-ES-Chirp3-HD-Orus', 'es-ES-Chirp3-HD-Charon', 'es-ES-Chirp3-HD-Aoede'],
-  en: ['en-US-Chirp3-HD-Orus', 'en-US-Chirp3-HD-Charon', 'en-US-Chirp3-HD-Aoede'],
+  es: ['es-ES-Chirp3-HD-Charon', 'es-ES-Chirp3-HD-Orus', 'es-ES-Chirp3-HD-Aoede'],
+  en: ['en-US-Chirp3-HD-Charon', 'en-US-Chirp3-HD-Orus', 'en-US-Chirp3-HD-Aoede'],
 }
 const TTS_LANGCODE = { es: 'es-ES', en: 'en-US' }
 
