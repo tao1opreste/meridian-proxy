@@ -41,7 +41,7 @@ const anthropicCors = cors({
 
 app.options('/anthropic', anthropicCors)
 
-app.post('/anthropic', anthropicCors, express.json({ limit: '1mb' }), async (req, res) => {
+app.post('/anthropic', anthropicCors, express.json({ limit: '25mb' }), async (req, res) => {
   if (PROXY_SECRET && req.get('x-meridian-secret') !== PROXY_SECRET) {
     return res.status(401).json({ error: { message: 'Unauthorized proxy request' } })
   }
