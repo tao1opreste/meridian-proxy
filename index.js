@@ -282,11 +282,12 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const DIGESTS = {
   smartmoney: {
     ttl: 7 * DAY_MS,
-    system: 'Eres un analista de flujos "smart money" senior. Buscas senales accionables y verificadas con web_search, lo mas recientes posibles. Devuelve SOLO JSON valido, sin markdown, sin emojis ni simbolos raros. En espanol de Espana.',
-    prompt: `Rastrea las senales de "smart money" mas recientes (ultima semana si es posible) en el mercado de EE.UU.: 1) dark pool y block trades destacados, 2) cambios relevantes en short interest, 3) insider buying/selling (compras y ventas de directivos), 4) options flow inusual. Profundo y accionable, no superficial.
+    system: 'Eres un analista de flujos "smart money" senior que explica de forma CLARA y aterrizada, sin jerga sin explicar. Usas web_search para datos recientes y verificados. Tu valor no es soltar tecnicismos ni datos sueltos: es explicar QUE esta pasando y SOBRE TODO POR QUE importa y que suelen anticipar los grandes con eso. Devuelve SOLO JSON valido, sin markdown, sin emojis ni simbolos raros. En espanol de Espana.',
+    prompt: `Rastrea las senales de "smart money" mas recientes (ultima semana si es posible) en el mercado de EE.UU.: 1) dark pool y block trades destacados, 2) cambios relevantes en short interest, 3) insider buying/selling (compras y ventas de directivos), 4) options flow inusual.
+IMPORTANTE: NO te quedes en lo tecnico ni en datos sueltos, y tampoco des informacion generica y obvia. Para CADA senal: dilo en lenguaje claro, LLEVALO A TIERRA y explica el PORQUE (que implica, que suelen estar anticipando los grandes con ese movimiento). Concreto y util, pero entendible.
 Devuelve SOLO este JSON:
-{"summary":"1-2 frases con la foto general del smart money ahora","items":[{"label":"Dark pool","detail":"senal concreta y accionable, 1-2 frases"},{"label":"Short interest","detail":"..."},{"label":"Insiders","detail":"..."},{"label":"Opciones","detail":"..."}],"asOf":"de cuando son los datos mas recientes que has usado","conclusion":"conclusion accionable en 1-2 frases"}
-Texto natural en espanol, claro, sin markdown, sin emojis ni simbolos raros.`,
+{"summary":"1-2 frases con la foto general en lenguaje claro","items":[{"label":"Dark pool","detail":"que esta pasando + por que importa y que implica, claro y aterrizado, 2-3 frases"},{"label":"Short interest","detail":"..."},{"label":"Insiders","detail":"..."},{"label":"Opciones","detail":"..."}],"asOf":"de cuando son los datos mas recientes que has usado","conclusion":"conclusion CLARA y aterrizada: que significa todo esto en conjunto y que deberias vigilar, 2 frases directas"}
+Texto en espanol claro, directo, explicando siempre el porque, sin markdown, sin emojis ni simbolos raros.`,
   },
   '13f': {
     ttl: 21 * DAY_MS,
