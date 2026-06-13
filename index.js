@@ -271,6 +271,73 @@ app.post('/tts', anthropicCors, express.json({ limit: '64kb' }), async (req, res
   }
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Dinero institucional — digest SEMANAL COMPARTIDO (no personalizado). Se calcula
+// 1 vez por semana (Sonnet + web_search) y se sirve a todos desde caché → coste casi
+// nulo y respuesta instantánea. Protegido con x-meridian-secret + CORS.
+// ─────────────────────────────────────────────────────────────────────────────
+const INSTITUTIONAL_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 1 semana
+let institutionalCache = null      // { ts, data }
+let institutionalInFlight = null   // dedupe de la 1ª petición de la semana
+
+const INST_SYSTEM = 'Eres un analista de mercados institucionales senior. Analizas A FONDO dónde está moviendo el dinero el capital institucional (grandes fondos, ETFs, presentaciones 13F, flujos por sector). Usa web_search para obtener los datos MÁS RECIENTES y verificados posibles. Devuelve SOLO JSON válido, sin markdown, sin emojis y sin símbolos raros. En español de España.'
+
+const INST_PROMPT = `Analiza dónde está yendo el dinero institucional AHORA MISMO, con los datos más recientes posibles. Usa web_search para información verificada y reciente: flujos de fondos y ETFs, rotación sectorial, posiciones notables en 13F recientes y movimientos de grandes inversores o fondos conocidos. Profundo y profesional, no superficial.
+Devuelve SOLO este JSON:
+{"summary":"1-2 frases con la foto general del dinero institucional ahora","flows":[{"area":"sector, activo o acción","direction":"entrada|salida|rotacion","detail":"qué están haciendo los grandes y por qué, 1-2 frases"}],"names":"movimientos notables de fondos o inversores conocidos (13F u operaciones recientes), 1-2 frases","asOf":"de cuándo son los datos más recientes que has usado","conclusion":"conclusión profesional en 1-2 frases"}
+Incluye 3-5 elementos en "flows". Texto natural en español, claro, sin markdown, sin emojis y sin símbolos raros.`
+
+function parseJSONLoose(text) {
+  const cleaned = String(text || '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+  try { return JSON.parse(cleaned) } catch {}
+  const m = cleaned.match(/\{[\s\S]*\}/)
+  if (m) return JSON.parse(m[0])
+  throw new Error('No JSON in response')
+}
+
+app.options('/institutional', anthropicCors)
+app.post('/institutional', anthropicCors, express.json({ limit: '64kb' }), async (req, res) => {
+  if (PROXY_SECRET && req.get('x-meridian-secret') !== PROXY_SECRET) {
+    return res.status(401).json({ error: { message: 'Unauthorized institutional request' } })
+  }
+  // Caché fresca (≤1 semana) → instantáneo y gratis para todos.
+  if (institutionalCache && Date.now() - institutionalCache.ts < INSTITUTIONAL_TTL_MS) {
+    return res.json({ ...institutionalCache.data, cached: true, ts: institutionalCache.ts })
+  }
+  const key = process.env.ANTHROPIC_API_KEY
+  if (!key) return res.status(500).json({ error: { message: 'ANTHROPIC_API_KEY not set on server' } })
+  try {
+    if (!institutionalInFlight) {
+      institutionalInFlight = (async () => {
+        const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 1800,
+            system: INST_SYSTEM,
+            messages: [{ role: 'user', content: INST_PROMPT }],
+            tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+          }),
+        })
+        const j = await upstream.json()
+        if (!upstream.ok) throw new Error(j?.error?.message || ('upstream ' + upstream.status))
+        const text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
+        const data = parseJSONLoose(text)
+        institutionalCache = { ts: Date.now(), data }
+        return data
+      })()
+    }
+    const data = await institutionalInFlight
+    institutionalInFlight = null
+    res.json({ ...data, cached: false, ts: Date.now() })
+  } catch (err) {
+    institutionalInFlight = null
+    if (institutionalCache) return res.json({ ...institutionalCache.data, cached: true, stale: true, ts: institutionalCache.ts })
+    res.status(502).json({ error: { message: 'Institutional error: ' + err.message } })
+  }
+})
+
 app.get('/health', (req, res) => res.json({ ok: true }))
 
 const PORT = process.env.PORT || 3001
