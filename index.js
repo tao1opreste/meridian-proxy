@@ -272,20 +272,33 @@ app.post('/tts', anthropicCors, express.json({ limit: '64kb' }), async (req, res
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dinero institucional — digest SEMANAL COMPARTIDO (no personalizado). Se calcula
-// 1 vez por semana (Sonnet + web_search) y se sirve a todos desde caché → coste casi
-// nulo y respuesta instantánea. Protegido con x-meridian-secret + CORS.
+// Digests de mercado COMPARTIDOS (no personalizados) por tipo. Se calculan 1 vez por
+// periodo (Sonnet + web_search) y se sirven a todos desde caché → coste casi nulo.
+//   smartmoney : dark pool/block trades, short interest, insiders, options flow — semanal
+//   13f        : movimientos 13F del trimestre (Berkshire, Druckenmiller…) tesis AI infra
+// Protegido con x-meridian-secret + CORS.
 // ─────────────────────────────────────────────────────────────────────────────
-const INSTITUTIONAL_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 1 semana
-let institutionalCache = null      // { ts, data }
-let institutionalInFlight = null   // dedupe de la 1ª petición de la semana
-
-const INST_SYSTEM = 'Eres un analista de mercados institucionales senior. Analizas A FONDO dónde está moviendo el dinero el capital institucional (grandes fondos, ETFs, presentaciones 13F, flujos por sector). Usa web_search para obtener los datos MÁS RECIENTES y verificados posibles. Devuelve SOLO JSON válido, sin markdown, sin emojis y sin símbolos raros. En español de España.'
-
-const INST_PROMPT = `Analiza dónde está yendo el dinero institucional AHORA MISMO, con los datos más recientes posibles. Usa web_search para información verificada y reciente: flujos de fondos y ETFs, rotación sectorial, posiciones notables en 13F recientes y movimientos de grandes inversores o fondos conocidos. Profundo y profesional, no superficial.
+const DAY_MS = 24 * 60 * 60 * 1000
+const DIGESTS = {
+  smartmoney: {
+    ttl: 7 * DAY_MS,
+    system: 'Eres un analista de flujos "smart money" senior. Buscas senales accionables y verificadas con web_search, lo mas recientes posibles. Devuelve SOLO JSON valido, sin markdown, sin emojis ni simbolos raros. En espanol de Espana.',
+    prompt: `Rastrea las senales de "smart money" mas recientes (ultima semana si es posible) en el mercado de EE.UU.: 1) dark pool y block trades destacados, 2) cambios relevantes en short interest, 3) insider buying/selling (compras y ventas de directivos), 4) options flow inusual. Profundo y accionable, no superficial.
 Devuelve SOLO este JSON:
-{"summary":"1-2 frases con la foto general del dinero institucional ahora","flows":[{"area":"sector, activo o acción","direction":"entrada|salida|rotacion","detail":"qué están haciendo los grandes y por qué, 1-2 frases"}],"names":"movimientos notables de fondos o inversores conocidos (13F u operaciones recientes), 1-2 frases","asOf":"de cuándo son los datos más recientes que has usado","conclusion":"conclusión profesional en 1-2 frases"}
-Incluye 3-5 elementos en "flows". Texto natural en español, claro, sin markdown, sin emojis y sin símbolos raros.`
+{"summary":"1-2 frases con la foto general del smart money ahora","items":[{"label":"Dark pool","detail":"senal concreta y accionable, 1-2 frases"},{"label":"Short interest","detail":"..."},{"label":"Insiders","detail":"..."},{"label":"Opciones","detail":"..."}],"asOf":"de cuando son los datos mas recientes que has usado","conclusion":"conclusion accionable en 1-2 frases"}
+Texto natural en espanol, claro, sin markdown, sin emojis ni simbolos raros.`,
+  },
+  '13f': {
+    ttl: 21 * DAY_MS,
+    system: 'Eres un analista que estudia las presentaciones 13F de los grandes fondos. Usa web_search para los datos del ultimo trimestre presentado. Devuelve SOLO JSON valido, sin markdown, sin emojis ni simbolos raros. En espanol de Espana.',
+    prompt: `Analiza los movimientos institucionales del ULTIMO trimestre 13F presentado. Centrate en fondos e inversores top (Berkshire Hathaway, Stanley Druckenmiller/Duquesne, y otros grandes relevantes) y FILTRA por la tesis de infraestructura de IA (semiconductores, centros de datos, energia/electricas para IA, redes, memoria, etc.). Profundo, no superficial.
+Devuelve SOLO este JSON:
+{"summary":"1-2 frases de la foto del trimestre en infraestructura de IA","items":[{"label":"Berkshire Hathaway","detail":"que compro o vendio relevante para AI infrastructure, 1-2 frases"},{"label":"Duquesne (Druckenmiller)","detail":"..."}],"asOf":"el trimestre de los datos (p.ej. Q1 2026)","conclusion":"conclusion en 1-2 frases"}
+Incluye 3-5 fondos o inversores en "items". Texto natural en espanol, sin markdown, sin emojis ni simbolos raros.`,
+  },
+}
+const digestCache = {}     // type -> { ts, data }
+const digestInFlight = {}  // type -> promise
 
 function parseJSONLoose(text) {
   const cleaned = String(text || '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
@@ -295,28 +308,30 @@ function parseJSONLoose(text) {
   throw new Error('No JSON in response')
 }
 
-app.options('/institutional', anthropicCors)
-app.post('/institutional', anthropicCors, express.json({ limit: '64kb' }), async (req, res) => {
+app.options('/digest', anthropicCors)
+app.post('/digest', anthropicCors, express.json({ limit: '64kb' }), async (req, res) => {
   if (PROXY_SECRET && req.get('x-meridian-secret') !== PROXY_SECRET) {
-    return res.status(401).json({ error: { message: 'Unauthorized institutional request' } })
+    return res.status(401).json({ error: { message: 'Unauthorized digest request' } })
   }
-  // Caché fresca (≤1 semana) → instantáneo y gratis para todos.
-  if (institutionalCache && Date.now() - institutionalCache.ts < INSTITUTIONAL_TTL_MS) {
-    return res.json({ ...institutionalCache.data, cached: true, ts: institutionalCache.ts })
+  const type = (req.body && DIGESTS[req.body.type]) ? req.body.type : 'smartmoney'
+  const cfg = DIGESTS[type]
+  const cached = digestCache[type]
+  if (cached && Date.now() - cached.ts < cfg.ttl) {
+    return res.json({ ...cached.data, cached: true, ts: cached.ts })
   }
   const key = process.env.ANTHROPIC_API_KEY
   if (!key) return res.status(500).json({ error: { message: 'ANTHROPIC_API_KEY not set on server' } })
   try {
-    if (!institutionalInFlight) {
-      institutionalInFlight = (async () => {
+    if (!digestInFlight[type]) {
+      digestInFlight[type] = (async () => {
         const upstream = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({
             model: 'claude-sonnet-4-6',
             max_tokens: 1800,
-            system: INST_SYSTEM,
-            messages: [{ role: 'user', content: INST_PROMPT }],
+            system: cfg.system,
+            messages: [{ role: 'user', content: cfg.prompt }],
             tools: [{ type: 'web_search_20250305', name: 'web_search' }],
           }),
         })
@@ -324,17 +339,17 @@ app.post('/institutional', anthropicCors, express.json({ limit: '64kb' }), async
         if (!upstream.ok) throw new Error(j?.error?.message || ('upstream ' + upstream.status))
         const text = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join('')
         const data = parseJSONLoose(text)
-        institutionalCache = { ts: Date.now(), data }
+        digestCache[type] = { ts: Date.now(), data }
         return data
       })()
     }
-    const data = await institutionalInFlight
-    institutionalInFlight = null
+    const data = await digestInFlight[type]
+    digestInFlight[type] = null
     res.json({ ...data, cached: false, ts: Date.now() })
   } catch (err) {
-    institutionalInFlight = null
-    if (institutionalCache) return res.json({ ...institutionalCache.data, cached: true, stale: true, ts: institutionalCache.ts })
-    res.status(502).json({ error: { message: 'Institutional error: ' + err.message } })
+    digestInFlight[type] = null
+    if (digestCache[type]) return res.json({ ...digestCache[type].data, cached: true, stale: true, ts: digestCache[type].ts })
+    res.status(502).json({ error: { message: 'Digest error: ' + err.message } })
   }
 })
 
